@@ -41,3 +41,5 @@ Wry'nin çocuk WebView yaklaşımı Linux'ta X11 ile desteklenir. Wayland için 
 ## Lisans
 
 MIT
+
+<!-- runtime optimization trigger -->
