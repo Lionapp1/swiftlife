@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SwiftLife</title>
+<style>
+:root{color-scheme:dark;--bg:#111318;--panel:#181b22;--panel2:#20242d;--text:#f4f6fb;--muted:#9aa3b2;--line:#2b303a;--accent:#7c5cff;--accent2:#5d8bff;--danger:#ff6577}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text)}
+body{display:flex;flex-direction:column;border-bottom:1px solid #090a0d}
+.top{height:92px;padding:10px 14px 11px;background:linear-gradient(180deg,#1a1d24,#15171d);border-bottom:1px solid var(--line);box-shadow:0 6px 18px rgba(0,0,0,.22)}
+.row{height:34px;display:flex;align-items:center;gap:8px}.brand{display:flex;align-items:center;gap:9px;min-width:130px;font-weight:800;letter-spacing:-.3px}.logo{width:25px;height:25px;border-radius:8px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:grid;place-items:center;box-shadow:0 4px 12px rgba(124,92,255,.28)}.logo svg{width:15px;height:15px;fill:none;stroke:white;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.btn{width:32px;height:32px;border:0;border-radius:9px;background:transparent;color:#c7ceda;display:grid;place-items:center;cursor:pointer;transition:.15s}.btn:hover{background:#292e38;color:#fff}.btn:active{transform:scale(.94)}.btn:disabled{opacity:.35;cursor:default;transform:none}.btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.spacer{flex:1}
+.address-wrap{height:38px;margin-top:0;display:flex;align-items:center;gap:7px;background:#0f1116;border:1px solid #303641;border-radius:12px;padding:0 11px;box-shadow:inset 0 1px 0 rgba(255,255,255,.025)}.lock{color:#67d49b;display:grid;place-items:center}.lock svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.address{min-width:0;flex:1;background:transparent;border:0;outline:0;color:#eef1f7;font-size:14px}.address::selection{background:#5c48bd}.status{font-size:11px;color:var(--muted);padding:0 4px;white-space:nowrap}.loading{width:7px;height:7px;border-radius:50%;background:#67d49b;box-shadow:0 0 10px #67d49b;transition:.2s}.loading.busy{background:#ffbd66;box-shadow:0 0 10px #ffbd66;animation:pulse .8s infinite}@keyframes pulse{50%{opacity:.3;transform:scale(.75)}}
+.menu{position:relative}.menu-panel{position:absolute;right:0;top:39px;width:230px;background:#1b1f27;border:1px solid #343a46;border-radius:12px;padding:6px;box-shadow:0 16px 50px rgba(0,0,0,.48);display:none;z-index:20}.menu-panel.open{display:block}.item{height:34px;border:0;width:100%;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:8px;background:transparent;color:#dce1ea;font-size:13px;text-align:left;cursor:pointer}.item:hover{background:#2a2f3a;color:#fff}.item .ico{width:18px;color:#aeb6c5;display:grid;place-items:center}.item svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}.sep{height:1px;background:#303540;margin:5px 4px}
+.hint{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:12px;color:#687182;pointer-events:none;opacity:0;transition:.2s}.address:placeholder-shown + .hint{opacity:1}
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="row">
+    <div class="brand"><div class="logo"><svg viewBox="0 0 24 24"><path d="M5 12h10M12 7l5 5-5 5"/></svg></div><span>SwiftLife</span></div>
+    <button class="btn" id="back" title="Geri"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+    <button class="btn" id="forward" title="İleri"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>
+    <button class="btn" id="reload" title="Yenile"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.9-3M4 5v5h5M4 13a8 8 0 0 0 14.9 3M20 19v-5h-5"/></svg></button>
+    <button class="btn" id="home" title="Ana sayfa"><svg viewBox="0 0 24 24"><path d="M3 11.5L12 4l9 7.5M5.5 10v9h13v-9M9.5 19v-5h5v5"/></svg></button>
+    <div class="address-wrap">
+      <div class="lock"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
+      <input class="address" id="address" spellcheck="false" autocomplete="off" placeholder="Web adresi veya arama yapın…">
+      <div class="status" id="status">Hazır</div><div class="loading" id="loading"></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="menu"><button class="btn" id="menuBtn" title="Menü"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
+      <div class="menu-panel" id="menuPanel">
+        <button class="item" data-action="focus"><span class="ico">⌕</span>Adres çubuğuna odaklan</button>
+        <button class="item" data-action="reload"><span class="ico">↻</span>Sayfayı yenile</button>
+        <button class="item" data-action="devtools"><span class="ico">⌘</span>Geliştirici araçları</button>
+        <div class="sep"></div>
+        <div style="padding:7px 10px 5px;color:#727b8b;font-size:11px">SwiftLife • Türkçe Web Tarayıcısı</div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const address=document.getElementById('address'),back=document.getElementById('back'),forward=document.getElementById('forward'),reload=document.getElementById('reload'),home=document.getElementById('home'),status=document.getElementById('status'),loading=document.getElementById('loading'),menuBtn=document.getElementById('menuBtn'),menuPanel=document.getElementById('menuPanel');
+const send=o=>{try{window.ipc.postMessage(JSON.stringify(o))}catch(e){}};
+const go=()=>{const v=address.value.trim();if(v)send({action:'navigate',url:v})};
+address.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();go()}});
+back.onclick=()=>send({action:'back'});forward.onclick=()=>send({action:'forward'});reload.onclick=()=>send({action:'reload'});home.onclick=()=>send({action:'home'});
+menuBtn.onclick=()=>menuPanel.classList.toggle('open');document.addEventListener('click',e=>{if(!e.target.closest('.menu'))menuPanel.classList.remove('open')});
+menuPanel.querySelectorAll('.item').forEach(i=>i.onclick=()=>{menuPanel.classList.remove('open');const a=i.dataset.action;if(a==='focus')swiftlifeFocus();if(a==='reload')send({action:'reload'});if(a==='devtools')send({action:'open_devtools'})});
+window.swiftlifeUrl=url=>{if(document.activeElement!==address)address.value=url;status.textContent=url.startsWith('https://')?'Güvenli':'Bağlantı'};
+window.swiftlifeTitle=t=>{document.title=(t&&t.trim()?t+' — ':'')+'SwiftLife'};
+window.swiftlifeState=(b,f)=>{back.disabled=!b;forward.disabled=!f};
+window.swiftlifeLoading=x=>{loading.classList.toggle('busy',x);status.textContent=x?'Yükleniyor…':'Hazır'};
+window.swiftlifeFocus=()=>{address.focus();address.select()};
+window.swiftlifeFocus();
+</script>
+</body></html>
