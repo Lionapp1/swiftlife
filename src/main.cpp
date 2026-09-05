@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -79,8 +80,9 @@ static void navigate(Browser* b, const std::string& input) {
 }
 
 static void on_address_activate(GtkEntry* entry, gpointer data) {
-    navigate(static_cast<Browser*>(data), gtk_entry_get_text(entry));
-    gtk_widget_grab_focus(GTK_WIDGET(static_cast<Browser*>(data)->view));
+    auto* b = static_cast<Browser*>(data);
+    navigate(b, gtk_entry_get_text(entry));
+    gtk_widget_grab_focus(GTK_WIDGET(b->view));
 }
 
 static void on_back(GtkButton*, gpointer data) { webkit_web_view_go_back(static_cast<Browser*>(data)->view); }
@@ -110,7 +112,7 @@ static void on_title_changed(GObject* object, GParamSpec*, gpointer data) {
     gtk_window_set_title(GTK_WINDOW(b->window), window_title.c_str());
 }
 
-static gboolean on_decide_policy(WebKitWebView* view, WebKitPolicyDecision* decision, WebKitPolicyDecisionType type, gpointer) {
+static gboolean on_decide_policy(WebKitWebView*, WebKitPolicyDecision* decision, WebKitPolicyDecisionType type, gpointer) {
     if (type != WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION) return FALSE;
     auto* action = webkit_navigation_policy_decision_get_navigation_action(WEBKIT_NAVIGATION_POLICY_DECISION(decision));
     auto* request = webkit_navigation_action_get_request(action);
@@ -122,23 +124,24 @@ static gboolean on_decide_policy(WebKitWebView* view, WebKitPolicyDecision* deci
 }
 
 static WebKitWebView* on_create(WebKitWebView*, WebKitNavigationAction*, gpointer data) {
-    auto* b = static_cast<Browser*>(data);
-    return b->view;
+    return static_cast<Browser*>(data)->view;
 }
 
 static void on_download_started(WebKitWebContext*, WebKitDownload* download, gpointer data) {
     auto* b = static_cast<Browser*>(data);
     std::error_code ec;
     fs::create_directories(b->downloads, ec);
-    const char* uri = webkit_download_get_request(download) ? webkit_uri_request_get_uri(webkit_download_get_request(download)) : nullptr;
+    auto* request = webkit_download_get_request(download);
+    const char* uri = request ? webkit_uri_request_get_uri(request) : nullptr;
     std::string filename = "download";
     if (uri) {
         const char* slash = strrchr(uri, '/');
         if (slash && *(slash + 1)) filename = slash + 1;
     }
-    for (char& c : filename) if (std::iscntrl(static_cast<unsigned char>(c)) || c == '/' || c == '\\' || c == ':' || c == '*') c = '_';
+    for (char& c : filename) if (std::iscntrl(static_cast<unsigned char>(c)) || c == '/' || c == '\\' || c == ':') c = '_';
     auto target = b->downloads / filename;
-    webkit_download_set_destination(download, ("file://" + target.string()).c_str());
+    const std::string destination = "file://" + target.string();
+    webkit_download_set_destination(download, destination.c_str());
 }
 
 static GtkWidget* button(const char* label, GCallback callback, Browser* b) {
@@ -155,7 +158,7 @@ window { background:#0d1016; }
 #brand { color:#f5f7fb; font-weight:800; font-size:15px; padding:0 12px 0 2px; }
 #toolbar-button { background:#171c25; color:#cbd2dc; border:1px solid #2b3442; border-radius:9px; padding:6px 10px; min-width:34px; }
 #toolbar-button:hover { background:#232a36; color:#ffffff; }
-#address { background:#0d1219; color:#eef2f7; border:1px solid #303a49; border-radius:12px; padding:9px 13px; caret-color:#8b76ff; }
+#address { background:#0d1219; color:#eef2f7; border:1px solid #303a49; border-radius:12px; padding:9px 13px; }
 #address:focus { border-color:#7560dc; }
 #loading { color:#8b76ff; padding:0 8px; }
 )CSS";
@@ -167,10 +170,9 @@ window { background:#0d1016; }
 
 static void activate(GtkApplication* application, gpointer) {
     std::error_code ec;
-    fs::create_directories(data_dir(), ec);
     app.profile = data_dir() / "profile";
-    app.downloads = fs::path(g_get_user_special_dir(G_USER_DIRECTORY_DOWNLOAD)) / "SwiftLife";
-    if (app.downloads.empty()) app.downloads = data_dir() / "Downloads";
+    const char* download_dir = g_get_user_special_dir(G_USER_DIRECTORY_DOWNLOAD);
+    app.downloads = fs::path(download_dir ? download_dir : data_dir().c_str()) / "SwiftLife";
     fs::create_directories(app.profile, ec);
     fs::create_directories(app.downloads, ec);
 
@@ -225,7 +227,6 @@ static void activate(GtkApplication* application, gpointer) {
     g_signal_connect(app.view, "notify::title", G_CALLBACK(on_title_changed), &app);
     g_signal_connect(app.view, "decide-policy", G_CALLBACK(on_decide_policy), &app);
     g_signal_connect(app.view, "create", G_CALLBACK(on_create), &app);
-    g_object_set_data(G_OBJECT(app.view), "swiftlife-browser", &app);
 
     auto* settings = webkit_web_view_get_settings(app.view);
     webkit_settings_set_enable_developer_extras(settings, TRUE);
@@ -239,7 +240,6 @@ static void activate(GtkApplication* application, gpointer) {
 }
 
 int main(int argc, char** argv) {
-    gtk_init(&argc, &argv);
     GtkApplication* application = gtk_application_new("com.swiftlife.Browser", G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(application, "activate", G_CALLBACK(activate), nullptr);
     const int status = g_application_run(G_APPLICATION(application), argc, argv);
