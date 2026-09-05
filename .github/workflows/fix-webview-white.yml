@@ -1,0 +1,42 @@
+name: Fix WebView white screen
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Patch WebView startup
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/main.rs')
+          s = p.read_text()
+          old = '.with_background_color((245, 246, 248, 255)).with_initialization_script_for_main_only(init, true).with_download_started_handler('
+          new = '.with_background_color((245, 246, 248, 255)).with_download_started_handler('
+          if old not in s:
+              raise SystemExit('initialization-script builder segment not found')
+          s = s.replace(old, new, 1)
+          old = 'AppEvent::Loading(is_loading) => { self.send_script(if is_loading { "window.swiftlifeLoading&&window.swiftlifeLoading(true);" } else { "window.swiftlifeLoading&&window.swiftlifeLoading(false);" }); self.push_state(); }'
+          new = 'AppEvent::Loading(is_loading) => { if is_loading { self.send_script("window.swiftlifeLoading&&window.swiftlifeLoading(true);"); } else { let script = chrome_script(); self.send_script(&script); self.send_script("window.swiftlifeLoading&&window.swiftlifeLoading(false);"); } self.push_state(); }'
+          if old not in s:
+              raise SystemExit('loading handler segment not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+      - name: Cargo check
+        run: cargo check
+      - name: Commit and remove patch workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main.rs .github/workflows/fix-webview-white.yml
+          git commit -m "fix: inject browser chrome after webview load"
+          git push
