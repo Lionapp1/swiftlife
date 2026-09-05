@@ -1,0 +1,23 @@
+name: SwiftLife CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: Cargo check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v4
+      - name: Rust kur
+        uses: dtolnay/rust-toolchain@stable
+      - name: Derlemeyi kontrol et
+        run: cargo check
