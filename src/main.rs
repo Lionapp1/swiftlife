@@ -15,14 +15,7 @@ use winit::{
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     window::{Window, WindowId},
 };
-use wry::{
-    NewWindowResponse,
-    PageLoadEvent,
-    Rect,
-    WebContext,
-    WebView,
-    WebViewBuilder,
-};
+use wry::{NewWindowResponse, PageLoadEvent, Rect, WebContext, WebView, WebViewBuilder};
 
 const HOME_URL: &str = "https://www.google.com";
 
@@ -35,152 +28,42 @@ const CHROME_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
-enum Command {
-    Navigate { url: String },
-    Back,
-    Forward,
-    Reload,
-    Home,
-    FocusAddress,
-    OpenDownloads,
-    OpenHistory,
-}
+enum Command { Navigate { url: String }, Back, Forward, Reload, Home, FocusAddress, OpenDownloads, OpenHistory }
+enum AppEvent { Command(Command), UrlChanged(String), TitleChanged(String), Loading(bool) }
 
-enum AppEvent {
-    Command(Command),
-    UrlChanged(String),
-    TitleChanged(String),
-    Loading(bool),
-}
-
-struct App {
-    window: Option<Arc<Window>>,
-    browser: Option<WebView>,
-    web_context: Option<WebContext>,
-    proxy: EventLoopProxy<AppEvent>,
-    last_history_url: String,
-}
+struct App { window: Option<Arc<Window>>, browser: Option<WebView>, web_context: Option<WebContext>, proxy: EventLoopProxy<AppEvent>, last_history_url: String }
 
 impl App {
-    fn new(proxy: EventLoopProxy<AppEvent>) -> Self {
-        Self { window: None, browser: None, web_context: None, proxy, last_history_url: String::new() }
-    }
-
-    fn bounds(window: &Window) -> Rect {
-        let size = window.inner_size();
-        Rect {
-            position: PhysicalPosition::new(0i32, 0i32).into(),
-            size: PhysicalSize::new(size.width, size.height).into(),
-        }
-    }
-
+    fn new(proxy: EventLoopProxy<AppEvent>) -> Self { Self { window: None, browser: None, web_context: None, proxy, last_history_url: String::new() } }
+    fn bounds(window: &Window) -> Rect { let size = window.inner_size(); Rect { position: PhysicalPosition::new(0i32, 0i32).into(), size: PhysicalSize::new(size.width, size.height).into() } }
     fn send_script(&self, script: &str) { if let Some(browser) = &self.browser { let _ = browser.evaluate_script(script); } }
     fn navigate(&self, input: &str) { let url = normalize_url(input); if let Some(browser) = &self.browser { let _ = browser.load_url(&url); } }
-
-    fn open_downloads(&self) {
-        let Some(dir) = downloads_dir() else { return };
-        let _ = fs::create_dir_all(&dir);
-        #[cfg(target_os = "windows")] let _ = ProcessCommand::new("explorer").arg(&dir).spawn();
-        #[cfg(target_os = "macos")] let _ = ProcessCommand::new("open").arg(&dir).spawn();
-        #[cfg(all(unix, not(target_os = "macos")))] let _ = ProcessCommand::new("xdg-open").arg(&dir).spawn();
-    }
-
-    fn open_history(&self) {
-        let Some(path) = history_path() else { return };
-        if !path.exists() { let _ = fs::write(&path, "SwiftLife geçmişi henüz boş.\n"); }
-        #[cfg(target_os = "windows")] let _ = ProcessCommand::new("notepad").arg(&path).spawn();
-        #[cfg(target_os = "macos")] let _ = ProcessCommand::new("open").arg(&path).spawn();
-        #[cfg(all(unix, not(target_os = "macos")))] let _ = ProcessCommand::new("xdg-open").arg(&path).spawn();
-    }
-
-    fn save_history(&mut self, url: &str) {
-        if url.is_empty() || url == "about:blank" || url == self.last_history_url { return; }
-        self.last_history_url = url.to_string();
-        let Some(path) = history_path() else { return };
-        if let Some(parent) = path.parent() { let _ = fs::create_dir_all(parent); }
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default();
-        let line = serde_json::json!({"visited_at": stamp, "url": url}).to_string();
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) { let _ = writeln!(file, "{line}"); }
-        if let Some(session) = session_path() { let _ = fs::write(session, url); }
-    }
-
-    fn command(&mut self, command: Command) {
-        match command {
-            Command::Navigate { url } => self.navigate(&url),
-            Command::Back => if let Some(browser) = &self.browser { let _ = browser.go_back(); },
-            Command::Forward => if let Some(browser) = &self.browser { let _ = browser.go_forward(); },
-            Command::Reload => if let Some(browser) = &self.browser { let _ = browser.reload(); },
-            Command::Home => self.navigate(HOME_URL),
-            Command::FocusAddress => self.send_script("window.swiftlifeFocusAddress&&window.swiftlifeFocusAddress();"),
-            Command::OpenDownloads => self.open_downloads(),
-            Command::OpenHistory => self.open_history(),
-        }
-    }
-
-    fn push_state(&self) {
-        if let Some(browser) = &self.browser {
-            let back = browser.can_go_back().unwrap_or(false);
-            let forward = browser.can_go_forward().unwrap_or(false);
-            self.send_script(&format!("window.swiftlifeState&&window.swiftlifeState({back},{forward});"));
-        }
-    }
+    fn open_downloads(&self) { let Some(dir) = downloads_dir() else { return }; let _ = fs::create_dir_all(&dir); #[cfg(target_os = "windows")] let _ = ProcessCommand::new("explorer").arg(&dir).spawn(); #[cfg(target_os = "macos")] let _ = ProcessCommand::new("open").arg(&dir).spawn(); #[cfg(all(unix, not(target_os = "macos")))] let _ = ProcessCommand::new("xdg-open").arg(&dir).spawn(); }
+    fn open_history(&self) { let Some(path) = history_path() else { return }; if !path.exists() { let _ = fs::write(&path, "SwiftLife geçmişi henüz boş.\n"); } #[cfg(target_os = "windows")] let _ = ProcessCommand::new("notepad").arg(&path).spawn(); #[cfg(target_os = "macos")] let _ = ProcessCommand::new("open").arg(&path).spawn(); #[cfg(all(unix, not(target_os = "macos")))] let _ = ProcessCommand::new("xdg-open").arg(&path).spawn(); }
+    fn save_history(&mut self, url: &str) { if url.is_empty() || url == "about:blank" || url == self.last_history_url { return; } self.last_history_url = url.to_string(); let Some(path) = history_path() else { return }; if let Some(parent) = path.parent() { let _ = fs::create_dir_all(parent); } let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default(); let line = serde_json::json!({"visited_at": stamp, "url": url}).to_string(); if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) { let _ = writeln!(file, "{line}"); } if let Some(session) = session_path() { let _ = fs::write(session, url); } }
+    fn command(&mut self, command: Command) { match command { Command::Navigate { url } => self.navigate(&url), Command::Back => if let Some(browser) = &self.browser { let _ = browser.go_back(); }, Command::Forward => if let Some(browser) = &self.browser { let _ = browser.go_forward(); }, Command::Reload => if let Some(browser) = &self.browser { let _ = browser.reload(); }, Command::Home => self.navigate(HOME_URL), Command::FocusAddress => self.send_script("window.swiftlifeFocusAddress&&window.swiftlifeFocusAddress();"), Command::OpenDownloads => self.open_downloads(), Command::OpenHistory => self.open_history() } }
+    fn push_state(&self) { if let Some(browser) = &self.browser { let back = browser.can_go_back().unwrap_or(false); let forward = browser.can_go_forward().unwrap_or(false); self.send_script(&format!("window.swiftlifeState&&window.swiftlifeState({back},{forward});")); } }
 }
 
 impl ApplicationHandler<AppEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() { return; }
-        #[cfg(target_os = "linux")]
-        gtk::init().expect("GTK/WebKitGTK başlatılamadı. Linux WebKitGTK paketlerini kurun.");
+        #[cfg(target_os = "linux")] gtk::init().expect("GTK/WebKitGTK başlatılamadı. Linux WebKitGTK paketlerini kurun.");
         let proxy = self.proxy.clone();
         let attrs = Window::default_attributes().with_title("SwiftLife — Türkçe Web Tarayıcısı").with_inner_size(LogicalSize::new(1440u32, 900u32)).with_min_inner_size(LogicalSize::new(900u32, 620u32));
         let window = Arc::new(event_loop.create_window(attrs).expect("SwiftLife penceresi oluşturulamadı"));
-        let data_dir = app_data_dir(); let _ = fs::create_dir_all(&data_dir);
-        let mut web_context = WebContext::new(Some(data_dir));
-        let start_url = load_session_url().unwrap_or_else(|| HOME_URL.to_string());
-        let download_dir = downloads_dir(); if let Some(dir) = &download_dir { let _ = fs::create_dir_all(dir); }
+        let data_dir = app_data_dir(); let _ = fs::create_dir_all(&data_dir); let mut web_context = WebContext::new(Some(data_dir));
+        let start_url = load_session_url().unwrap_or_else(|| HOME_URL.to_string()); let download_dir = downloads_dir(); if let Some(dir) = &download_dir { let _ = fs::create_dir_all(dir); }
         let browser_proxy = proxy.clone(); let init = chrome_script();
-        let builder = WebViewBuilder::new_with_web_context(&mut web_context)
-            .with_id("swiftlife-browser")
-            .with_bounds(Self::bounds(&window))
-            .with_url(&start_url)
-            .with_user_agent(CHROME_USER_AGENT)
-            .with_clipboard(true)
-            .with_autoplay(true)
-            .with_hotkeys_zoom(true)
-            .with_back_forward_navigation_gestures(true)
-            .with_devtools(true)
-            .with_initialization_script_for_main_only(init, true)
-            .with_download_started_handler(move |_url, path| {
-                if let Some(dir) = &download_dir { if let Some(name) = path.file_name() { *path = dir.join(name); } }
-                path.is_absolute()
-            })
-            .with_navigation_handler({ let proxy = browser_proxy.clone(); move |url| { let _ = proxy.send_event(AppEvent::UrlChanged(url)); true } })
-            .with_on_page_load_handler({ let proxy = browser_proxy.clone(); move |event, url| { let _ = proxy.send_event(AppEvent::Loading(matches!(event, PageLoadEvent::Started))); let _ = proxy.send_event(AppEvent::UrlChanged(url)); } })
-            .with_document_title_changed_handler({ let proxy = browser_proxy.clone(); move |title| { let _ = proxy.send_event(AppEvent::TitleChanged(title)); } })
-            .with_new_window_req_handler({ let proxy = browser_proxy.clone(); move |url, _features| { let _ = proxy.send_event(AppEvent::Command(Command::Navigate { url })); NewWindowResponse::Deny } });
+        let builder = WebViewBuilder::new_with_web_context(&mut web_context).with_id("swiftlife-browser").with_bounds(Self::bounds(&window)).with_url(&start_url).with_user_agent(CHROME_USER_AGENT).with_clipboard(true).with_autoplay(true).with_hotkeys_zoom(true).with_back_forward_navigation_gestures(true).with_devtools(true).with_initialization_script_for_main_only(init, true).with_download_started_handler(move |_url, path| { if let Some(dir) = &download_dir { if let Some(name) = path.file_name() { *path = dir.join(name); } } path.is_absolute() }).with_navigation_handler({ let proxy = browser_proxy.clone(); move |url| { let _ = proxy.send_event(AppEvent::UrlChanged(url)); true } }).with_on_page_load_handler({ let proxy = browser_proxy.clone(); move |event, url| { let _ = proxy.send_event(AppEvent::Loading(matches!(event, PageLoadEvent::Started))); let _ = proxy.send_event(AppEvent::UrlChanged(url)); } }).with_document_title_changed_handler({ let proxy = browser_proxy.clone(); move |title| { let _ = proxy.send_event(AppEvent::TitleChanged(title)); } }).with_new_window_req_handler({ let proxy = browser_proxy.clone(); move |url, _features| { let _ = proxy.send_event(AppEvent::Command(Command::Navigate { url })); NewWindowResponse::Deny } });
         let browser = builder.build_as_child(window.as_ref()).expect("SwiftLife web görünümü oluşturulamadı");
         self.window = Some(window); self.browser = Some(browser); self.web_context = Some(web_context); self.update_layout(); self.push_state();
     }
-
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AppEvent) {
-        match event {
-            AppEvent::Command(command) => self.command(command),
-            AppEvent::UrlChanged(url) => { self.save_history(&url); let value = serde_json::to_string(&url).unwrap_or_else(|_| "\"\"".into()); self.send_script(&format!("window.swiftlifeUrl&&window.swiftlifeUrl({value});")); self.push_state(); }
-            AppEvent::TitleChanged(title) => { let value = serde_json::to_string(&title).unwrap_or_else(|_| "\"SwiftLife\"".into()); self.send_script(&format!("window.swiftlifeTitle&&window.swiftlifeTitle({value});")); }
-            AppEvent::Loading(is_loading) => { self.send_script(if is_loading { "window.swiftlifeLoading&&window.swiftlifeLoading(true);" } else { "window.swiftlifeLoading&&window.swiftlifeLoading(false);" }); self.push_state(); }
-        }
-    }
-
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) {
-        match event { WindowEvent::Resized(_) => self.update_layout(), WindowEvent::CloseRequested => event_loop.exit(), _ => {} }
-    }
-
-    #[cfg(target_os = "linux")]
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) { while gtk::events_pending() { gtk::main_iteration_do(false); } }
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AppEvent) { match event { AppEvent::Command(command) => self.command(command), AppEvent::UrlChanged(url) => { self.save_history(&url); let value = serde_json::to_string(&url).unwrap_or_else(|_| "\"\"".into()); self.send_script(&format!("window.swiftlifeUrl&&window.swiftlifeUrl({value});")); self.push_state(); }, AppEvent::TitleChanged(title) => { let value = serde_json::to_string(&title).unwrap_or_else(|_| "\"SwiftLife\"".into()); self.send_script(&format!("window.swiftlifeTitle&&window.swiftlifeTitle({value});")); }, AppEvent::Loading(is_loading) => { self.send_script(if is_loading { "window.swiftlifeLoading&&window.swiftlifeLoading(true);" } else { "window.swiftlifeLoading&&window.swiftlifeLoading(false);" }); self.push_state(); } } }
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) { match event { WindowEvent::Resized(_) => self.update_layout(), WindowEvent::CloseRequested => event_loop.exit(), _ => {} } }
+    #[cfg(target_os = "linux")] fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) { while gtk::events_pending() { gtk::main_iteration_do(false); } }
 }
-
 impl App { fn update_layout(&self) { if let (Some(window), Some(browser)) = (&self.window, &self.browser) { let _ = browser.set_bounds(Self::bounds(window)); } } }
-
 fn app_data_dir() -> PathBuf { dirs::data_local_dir().unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".local/share")).join("SwiftLife") }
 fn downloads_dir() -> Option<PathBuf> { dirs::download_dir().or_else(|| dirs::home_dir().map(|h| h.join("Downloads"))) }
 fn history_path() -> Option<PathBuf> { Some(app_data_dir().join("history.jsonl")) }
@@ -222,14 +105,8 @@ else{item('↻','Sayfayı yenile',()=>location.reload());item('⌂','Ana sayfay�
 sep();item('×','Kapat',hide)}
 document.addEventListener('contextmenu',e=>{if(host.contains(e.target)||editable(e.target))return;const base=nearest(e.target);const a=base?.closest?.('a[href]');const img=base?.closest?.('img');const vid=base?.closest?.('video');let info=null;if(img){info={kind:'image',url:abs(img.currentSrc||img.src||img.getAttribute('src')),link:a?abs(a.href):''}}else if(vid){info={kind:'video',url:abs(vid.currentSrc||vid.src||vid.getAttribute('src'))}}else{const bg=bgUrl(base);if(bg)info={kind:'image',url:bg,link:a?abs(a.href):''};else if(a)info={kind:'link',url:abs(a.href)}}if(!info){const s=selected();info=s?{kind:'selection',text:s}:{kind:'page'}}e.preventDefault();e.stopPropagation();context(info);const w=ctx.offsetWidth||290,h=ctx.offsetHeight||280,p=8;ctx.style.left=Math.max(p,Math.min(e.clientX,innerWidth-w-p))+'px';ctx.style.top=Math.max(84,Math.min(e.clientY,innerHeight-h-p))+'px';ctx.classList.add('open')},true);
 document.addEventListener('mousedown',e=>{if(!ctx.contains(e.target))hide();if(!menu.contains(e.target))menu.classList.remove('open')},true);document.addEventListener('keydown',e=>{if(e.key==='Escape'){hide();menu.classList.remove('open')}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='l'){e.preventDefault();window.swiftlifeFocusAddress()}},true);
-window.addEventListener('blur',()=>{hide();menu.classList.remove('open'});
+window.addEventListener('blur',()=>{hide();menu.classList.remove('open')});
 })();"#.to_string()
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let event_loop = EventLoop::<AppEvent>::with_user_event().build()?;
-    let proxy = event_loop.create_proxy();
-    let mut app = App::new(proxy);
-    event_loop.run_app(&mut app)?;
-    Ok(())
-}
+fn main() -> Result<(), Box<dyn std::error::Error>> { let event_loop = EventLoop::<AppEvent>::with_user_event().build()?; let proxy = event_loop.create_proxy(); let mut app = App::new(proxy); event_loop.run_app(&mut app)?; Ok(()) }
