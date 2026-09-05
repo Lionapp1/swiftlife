@@ -9,7 +9,6 @@ use winit::{
     window::{Window, WindowId},
 };
 use wry::{
-    dpi::Position,
     http::Request,
     NewWindowResponse,
     PageLoadEvent,
@@ -64,11 +63,7 @@ impl App {
         } else {
             Rect {
                 position: LogicalPosition::new(0, TOOLBAR_HEIGHT.min(size.height)).into(),
-                size: LogicalSize::new(
-                    size.width,
-                    size.height.saturating_sub(TOOLBAR_HEIGHT),
-                )
-                .into(),
+                size: LogicalSize::new(size.width, size.height.saturating_sub(TOOLBAR_HEIGHT)).into(),
             }
         }
     }
@@ -157,16 +152,12 @@ impl ApplicationHandler<AppEvent> for App {
         let browser_proxy = proxy.clone();
         let browser_init = r#"
             (() => {
-                const forward = () => {
-                    try { window.ipc.postMessage(JSON.stringify({action:'context_hint', kind:'link', url: location.href})); } catch (_) {}
-                };
                 window.addEventListener('keydown', (event) => {
                     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'l') {
                         event.preventDefault();
                         try { window.ipc.postMessage(JSON.stringify({action:'focus_address'})); } catch (_) {}
                     }
                 }, true);
-                window.addEventListener('contextmenu', () => forward(), true);
             })();
         "#;
 
@@ -202,16 +193,6 @@ impl ApplicationHandler<AppEvent> for App {
                 move |url, _features| {
                     let _ = proxy.send_event(AppEvent::Command(Command::Navigate { url }));
                     NewWindowResponse::Deny
-                }
-            })
-            .with_ipc_handler({
-                let proxy = browser_proxy.clone();
-                move |request: Request<String>| {
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&request.into_body()) {
-                        if value.get("action").and_then(|v| v.as_str()) == Some("focus_address") {
-                            let _ = proxy.send_event(AppEvent::Command(Command::FocusAddress));
-                        }
-                    }
                 }
             })
             .build_as_child(window.as_ref())
