@@ -13,7 +13,7 @@ use std::{
 use serde::Deserialize;
 use winit::{
     application::ApplicationHandler,
-    dpi::{LogicalPosition, LogicalSize, PhysicalSize},
+    dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize},
     event::WindowEvent,
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     window::{Window, WindowId},
@@ -60,14 +60,12 @@ fn spawn_history_writer() -> Sender<HistoryEntry> {
 impl App {
     fn new(proxy: EventLoopProxy<AppEvent>) -> Self { Self { window: None, browser: None, web_context: None, proxy, last_history_url: String::new(), last_ui_url: String::new(), history_tx: spawn_history_writer() } }
     fn bounds(window: &Window) -> Rect {
-    let size = window.inner_size();
-    let scale = window.scale_factor().max(0.5);
-    let logical = LogicalSize::new(size.width as f64 / scale, size.height as f64 / scale);
-    Rect {
-        position: LogicalPosition::new(0.0, 0.0).into(),
-        size: logical.into(),
+        let size = window.inner_size();
+        Rect {
+            position: PhysicalPosition::new(0i32, 0i32).into(),
+            size: PhysicalSize::new(size.width, size.height).into(),
+        }
     }
-}
     fn send_script(&self, script: &str) { if let Some(browser) = &self.browser { let _ = browser.evaluate_script(script); } }
     fn navigate(&self, input: &str) { let url = normalize_url(input); if let Some(browser) = &self.browser { let _ = browser.load_url(&url); } }
     fn open_downloads(&self) { let Some(dir) = downloads_dir() else { return }; let _ = fs::create_dir_all(&dir); #[cfg(target_os = "windows")] let _ = ProcessCommand::new("explorer").arg(&dir).spawn(); #[cfg(target_os = "macos")] let _ = ProcessCommand::new("open").arg(&dir).spawn(); #[cfg(all(unix, not(target_os = "macos")))] let _ = ProcessCommand::new("xdg-open").arg(&dir).spawn(); }
@@ -117,7 +115,7 @@ document.documentElement.appendChild(style);
 const host=document.createElement('div');host.id='swiftlife-host';const shadow=host.attachShadow({mode:'open'});document.documentElement.appendChild(host);
 shadow.innerHTML=`<div class="bar"><div class="brand"><div class="logo"><svg viewBox="0 0 24 24"><path d="M5 12h10M12 7l5 5-5 5"/></svg></div><div><div class="name">SwiftLife</div><div class="sub">Hızlı web</div></div></div><div class="nav"><button class="btn" id="back" title="Geri"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button><button class="btn" id="forward" title="İleri"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button><button class="btn" id="reload" title="Yenile"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.9-3M4 5v5h5M4 13a8 8 0 0 0 14.9 3M20 19v-5h-5"/></svg></button><button class="btn" id="home" title="Ana sayfa"><svg viewBox="0 0 24 24"><path d="M3 11.5L12 4l9 7.5M5.5 10v9h13v-9M9.5 19v-5h5v5"/></svg></button></div><label class="address"><span class="lock"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span><input id="url" autocomplete="off" spellcheck="false" placeholder="Web adresi veya arama yapın…"><span class="https" id="https">HTTPS</span><span class="dot" id="dot"></span></label><div class="actions"><button class="btn" id="downloads" title="İndirilenler"><svg viewBox="0 0 24 24"><path d="M12 4v10M8 11l4 4 4-4M5 19h14"/></svg></button><button class="btn" id="menuBtn" title="Menü"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button></div></div><div class="sl-menu" id="menu"><button data-a="focus"><span class="ico">⌕</span>Adres çubuğuna odaklan<span class="key">Ctrl L</span></button><button data-a="reload"><span class="ico">↻</span>Sayfayı yenile<span class="key">Ctrl R</span></button><button data-a="downloads"><span class="ico">↓</span>İndirilenler klasörünü aç</button><button data-a="history"><span class="ico">◷</span>Geçmişi aç</button><div class="sep"></div><div class="meta"><b>SwiftLife</b> • Tek WebView mimarisi<br>Sağ tık: bağlantı, görsel, video ve seçim araçları</div></div><div class="sl-context" id="ctx"></div>`;
 const q=s=>shadow.querySelector(s),send=o=>{try{window.ipc.postMessage(JSON.stringify(o))}catch(_){}};
-const url=q('#url'),dot=q('#dot'),https=q('#https'),menu=q('#menu'),ctx=q('#ctx');
+const url=q('#url'),dot=q('#dot'),https=q('#https),menu=q('#menu'),ctx=q('#ctx');
 const go=()=>{const v=url.value.trim();if(v)send({action:'navigate',url:v})};
 q('#back').onclick=()=>send({action:'back'});q('#forward').onclick=()=>send({action:'forward'});q('#reload').onclick=()=>send({action:'reload'});q('#home').onclick=()=>send({action:'home'});q('#downloads').onclick=()=>send({action:'open_downloads'});
 q('#menuBtn').onclick=e=>{e.stopPropagation();menu.classList.toggle('open')};menu.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;menu.classList.remove('open');const a=b.dataset.a;if(a==='focus')window.swiftlifeFocusAddress();if(a==='reload')send({action:'reload'});if(a==='downloads')send({action:'open_downloads'});if(a==='history')send({action:'open_history'})});
