@@ -8,7 +8,7 @@ on:
 
 jobs:
   check:
-    name: Cargo check
+    name: Cargo check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -17,7 +17,63 @@ jobs:
     steps:
       - name: Depoyu al
         uses: actions/checkout@v4
+
+      - name: Linux WebKitGTK bağımlılıklarını kur
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev
+
       - name: Rust kur
         uses: dtolnay/rust-toolchain@stable
-      - name: Derlemeyi kontrol et
+
+      - name: Cargo check
         run: cargo check
+
+  linux-appimage:
+    name: Linux AppImage
+    runs-on: ubuntu-24.04
+    needs: check
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v4
+
+      - name: WebKitGTK bağımlılıklarını kur
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev
+
+      - name: Rust kur
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Release derlemesi
+        run: cargo build --release
+
+      - name: AppImage oluştur
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf AppDir SwiftLife-x86_64.AppImage
+          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/scalable/apps
+          cp target/release/swiftlife AppDir/usr/bin/swiftlife
+          cp packaging/swiftlife.desktop AppDir/usr/share/applications/swiftlife.desktop
+          cp packaging/swiftlife.svg AppDir/usr/share/icons/hicolor/scalable/apps/swiftlife.svg
+          cp packaging/swiftlife.desktop AppDir/swiftlife.desktop
+          cp packaging/swiftlife.svg AppDir/swiftlife.svg
+          cat > AppDir/AppRun <<'EOF'
+          #!/bin/sh
+          HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+          exec "$HERE/usr/bin/swiftlife" "$@"
+          EOF
+          chmod +x AppDir/AppRun AppDir/usr/bin/swiftlife
+          curl -L --fail --retry 3 -o appimagetool.AppImage \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool.AppImage
+          ARCH=x86_64 ./appimagetool.AppImage AppDir SwiftLife-x86_64.AppImage
+
+      - name: AppImage artifactını yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: SwiftLife-Linux-x86_64
+          path: SwiftLife-x86_64.AppImage
+          if-no-files-found: error
