@@ -43,16 +43,14 @@ struct App {
     window: Option<Arc<Window>>,
     toolbar: Option<WebView>,
     browser: Option<WebView>,
-    proxy: Option<EventLoopProxy<AppEvent>>,
-}
-
-impl Default for App {
-    fn default() -> Self {
-        Self { window: None, toolbar: None, browser: None, proxy: None }
-    }
+    proxy: EventLoopProxy<AppEvent>,
 }
 
 impl App {
+    fn new(proxy: EventLoopProxy<AppEvent>) -> Self {
+        Self { window: None, toolbar: None, browser: None, proxy }
+    }
+
     fn bounds(window: &Window, toolbar: bool) -> Rect {
         let size = window.inner_size().to_logical::<u32>(window.scale_factor());
         if toolbar {
@@ -127,9 +125,7 @@ impl ApplicationHandler<AppEvent> for App {
         #[cfg(target_os = "linux")]
         gtk::init().expect("GTK başlatılamadı. Linux'ta WebKitGTK bağımlılıklarını kurun.");
 
-        let proxy = event_loop.create_proxy();
-        self.proxy = Some(proxy.clone());
-
+        let proxy = self.proxy.clone();
         let attrs = Window::default_attributes()
             .with_title("SwiftLife — Türkçe Web Tarayıcısı")
             .with_inner_size(LogicalSize::new(1440u32, 900u32))
@@ -258,7 +254,8 @@ fn normalize_url(input: &str) -> String {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoop::<AppEvent>::with_user_event().build()?;
-    let mut app = App::default();
+    let proxy = event_loop.create_proxy();
+    let mut app = App::new(proxy);
     event_loop.run_app(&mut app)?;
     Ok(())
 }
