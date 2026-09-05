@@ -1,0 +1,46 @@
+name: Apply white screen fix
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch main.rs robustly
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('src/main.rs')
+          s=p.read_text()
+          s=s.replace('dpi::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize}', 'dpi::LogicalSize')
+          s=s.replace('        let browser_proxy = proxy.clone(); let init = chrome_script();', '        let browser_proxy = proxy.clone();')
+          s=s.replace('.with_initialization_script_for_main_only(init, true)', '')
+          s=re.sub(r'\.with_url\(&start_url\)', '.with_url("about:blank")', s, count=1)
+          s=re.sub(r'let browser = builder\.build_as_child\(window\.as_ref\(\)\)\.expect\([^;]+\);', 'let browser = builder.build(window.as_ref()).expect("SwiftLife web görünümü oluşturulamadı");', s, count=1)
+          s=re.sub(r'fn update_layout\(&self\) \{ if let \(Some\(window\), Some\(browser\)\) = \(&self\.window, &self\.browser\) \{ let _ = browser\.set_bounds\(Self::bounds\(window\)\); \} \}', 'fn update_layout(&self) {}', s, count=1)
+          needle='self.window = Some(window); self.browser = Some(browser); self.web_context = Some(web_context); self.update_layout(); self.push_state();'
+          repl='self.window = Some(window); self.browser = Some(browser); self.web_context = Some(web_context); self.send_script(&chrome_script()); self.navigate(&start_url); self.update_layout(); self.push_state();'
+          if needle not in s: raise SystemExit('post-build initialization not found')
+          s=s.replace(needle,repl,1)
+          old='AppEvent::Loading(is_loading) => { self.send_script(if is_loading { "window.swiftlifeLoading&&window.swiftlifeLoading(true);" } else { "window.swiftlifeLoading&&window.swiftlifeLoading(false);" }); self.push_state(); }'
+          new='AppEvent::Loading(is_loading) => { if is_loading { self.send_script("window.swiftlifeLoading&&window.swiftlifeLoading(true);"); } else { let script=chrome_script(); self.send_script(&script); self.send_script("window.swiftlifeLoading&&window.swiftlifeLoading(false);"); } self.push_state(); }'
+          if old in s: s=s.replace(old,new,1)
+          p.write_text(s)
+          PY
+      - name: Validate
+        run: cargo check
+      - name: Commit and remove patch workflows
+        shell: bash
+        run: |
+          git config user.name "swiftlife-bot"
+          git config user.email "actions@github.com"
+          git add src/main.rs
+          git rm -f .github/workflows/apply-white-screen-fix.yml 2>/dev/null || true
+          git rm -f .github/workflows/fix-webview-white.yml .github/workflows/fix-webview-white-v2.yml .github/workflows/fix-unused-import.yml .github/workflows/fix-runtime.yml .github/workflows/fix-white-screen-final.yml 2>/dev/null || true
+          git commit -m "fix: harden webview startup and sizing" || exit 0
+          git push
