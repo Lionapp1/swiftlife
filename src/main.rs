@@ -11,7 +11,7 @@ use std::{
 use serde::Deserialize;
 use winit::{
     application::ApplicationHandler,
-    dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
+    dpi::{LogicalPosition, LogicalSize, PhysicalSize},
     event::WindowEvent,
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     window::{Window, WindowId},
@@ -57,7 +57,15 @@ fn spawn_history_writer() -> Sender<HistoryEntry> {
 
 impl App {
     fn new(proxy: EventLoopProxy<AppEvent>) -> Self { Self { window: None, browser: None, web_context: None, proxy, last_history_url: String::new(), last_ui_url: String::new(), history_tx: spawn_history_writer() } }
-    fn bounds(window: &Window) -> Rect { let size = window.inner_size(); Rect { position: PhysicalPosition::new(0i32, 0i32).into(), size: PhysicalSize::new(size.width, size.height).into() } }
+    fn bounds(window: &Window) -> Rect {
+    let size = window.inner_size();
+    let scale = window.scale_factor().max(0.5);
+    let logical = LogicalSize::new(size.width as f64 / scale, size.height as f64 / scale);
+    Rect {
+        position: LogicalPosition::new(0.0, 0.0).into(),
+        size: logical.into(),
+    }
+}
     fn send_script(&self, script: &str) { if let Some(browser) = &self.browser { let _ = browser.evaluate_script(script); } }
     fn navigate(&self, input: &str) { let url = normalize_url(input); if let Some(browser) = &self.browser { let _ = browser.load_url(&url); } }
     fn open_downloads(&self) { let Some(dir) = downloads_dir() else { return }; let _ = fs::create_dir_all(&dir); #[cfg(target_os = "windows")] let _ = ProcessCommand::new("explorer").arg(&dir).spawn(); #[cfg(target_os = "macos")] let _ = ProcessCommand::new("open").arg(&dir).spawn(); #[cfg(all(unix, not(target_os = "macos")))] let _ = ProcessCommand::new("xdg-open").arg(&dir).spawn(); }
@@ -82,12 +90,12 @@ impl ApplicationHandler<AppEvent> for App {
         let data_dir = app_data_dir(); let _ = fs::create_dir_all(&data_dir); let mut web_context = WebContext::new(Some(data_dir));
         let start_url = load_session_url().unwrap_or_else(|| HOME_URL.to_string()); let download_dir = downloads_dir(); if let Some(dir) = &download_dir { let _ = fs::create_dir_all(dir); }
         let browser_proxy = proxy.clone(); let init = chrome_script();
-        let builder = WebViewBuilder::new_with_web_context(&mut web_context).with_id("swiftlife-browser").with_bounds(Self::bounds(&window)).with_url(&start_url).with_user_agent(CHROME_USER_AGENT).with_clipboard(true).with_autoplay(true).with_hotkeys_zoom(true).with_back_forward_navigation_gestures(true).with_devtools(false).with_initialization_script_for_main_only(init, true).with_download_started_handler(move |_url, path| { if let Some(dir) = &download_dir { if let Some(name) = path.file_name() { *path = dir.join(name); } } path.is_absolute() }).with_navigation_handler({ let proxy = browser_proxy.clone(); move |url| { let _ = proxy.send_event(AppEvent::UrlChanged(url)); true } }).with_on_page_load_handler({ let proxy = browser_proxy.clone(); move |event, url| { let _ = proxy.send_event(AppEvent::Loading(matches!(event, PageLoadEvent::Started))); let _ = proxy.send_event(AppEvent::UrlChanged(url)); } }).with_document_title_changed_handler({ let proxy = browser_proxy.clone(); move |title| { let _ = proxy.send_event(AppEvent::TitleChanged(title)); } }).with_new_window_req_handler({ let proxy = browser_proxy.clone(); move |url, _features| { let _ = proxy.send_event(AppEvent::Command(Command::Navigate { url })); NewWindowResponse::Deny } });
+        let builder = WebViewBuilder::new_with_web_context(&mut web_context).with_id("swiftlife-browser").with_bounds(Self::bounds(&window)).with_url(&start_url).with_user_agent(CHROME_USER_AGENT).with_clipboard(true).with_autoplay(true).with_hotkeys_zoom(true).with_back_forward_navigation_gestures(true).with_devtools(false).with_background_color((245, 246, 248, 255)).with_initialization_script_for_main_only(init, true).with_download_started_handler(move |_url, path| { if let Some(dir) = &download_dir { if let Some(name) = path.file_name() { *path = dir.join(name); } } path.is_absolute() }).with_navigation_handler({ let proxy = browser_proxy.clone(); move |url| { let _ = proxy.send_event(AppEvent::UrlChanged(url)); true } }).with_on_page_load_handler({ let proxy = browser_proxy.clone(); move |event, url| { let _ = proxy.send_event(AppEvent::Loading(matches!(event, PageLoadEvent::Started))); let _ = proxy.send_event(AppEvent::UrlChanged(url)); } }).with_document_title_changed_handler({ let proxy = browser_proxy.clone(); move |title| { let _ = proxy.send_event(AppEvent::TitleChanged(title)); } }).with_new_window_req_handler({ let proxy = browser_proxy.clone(); move |url, _features| { let _ = proxy.send_event(AppEvent::Command(Command::Navigate { url })); NewWindowResponse::Deny } });
         let browser = builder.build_as_child(window.as_ref()).expect("SwiftLife web görünümü oluşturulamadı");
         self.window = Some(window); self.browser = Some(browser); self.web_context = Some(web_context); self.update_layout(); self.push_state();
     }
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AppEvent) { match event { AppEvent::Command(command) => self.command(command), AppEvent::UrlChanged(url) => { self.save_history(&url); if url != self.last_ui_url { self.last_ui_url = url.clone(); let value = serde_json::to_string(&url).unwrap_or_else(|_| "\"\"".into()); self.send_script(&format!("window.swiftlifeUrl&&window.swiftlifeUrl({value});")); } self.push_state(); }, AppEvent::TitleChanged(title) => { let value = serde_json::to_string(&title).unwrap_or_else(|_| "\"SwiftLife\"".into()); self.send_script(&format!("window.swiftlifeTitle&&window.swiftlifeTitle({value});")); }, AppEvent::Loading(is_loading) => { self.send_script(if is_loading { "window.swiftlifeLoading&&window.swiftlifeLoading(true);" } else { "window.swiftlifeLoading&&window.swiftlifeLoading(false);" }); self.push_state(); } } }
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) { match event { WindowEvent::Resized(_) => self.update_layout(), WindowEvent::CloseRequested => event_loop.exit(), _ => {} } }
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) { match event { WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => self.update_layout(), WindowEvent::CloseRequested => event_loop.exit(), _ => {} } }
     #[cfg(target_os = "linux")] fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) { while gtk::events_pending() { gtk::main_iteration_do(false); } }
 }
 impl App { fn update_layout(&self) { if let (Some(window), Some(browser)) = (&self.window, &self.browser) { let _ = browser.set_bounds(Self::bounds(window)); } } }
