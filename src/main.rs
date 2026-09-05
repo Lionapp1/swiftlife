@@ -104,7 +104,9 @@ impl App {
             Command::Home => self.navigate(HOME_URL),
             Command::FocusAddress => self.send_to_toolbar("window.swiftlifeFocus();"),
             Command::OpenDevtools => {
-                if let Some(browser) = &self.browser { browser.open_devtools(); }
+                // Wry 0.56.1 does not expose a cross-platform WebView::open_devtools()
+                // API. Keep the menu command harmless rather than breaking release builds.
+                self.send_to_toolbar("window.swiftlifeNotice && window.swiftlifeNotice('Geliştirici araçları bu sürümde kullanılamıyor.');");
             }
         }
     }
