@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use serde::Deserialize;
 use winit::{
@@ -17,7 +17,7 @@ use wry::{
     WebViewBuilder,
 };
 
-const TOOLBAR_HEIGHT: u32 = 92;
+const TOOLBAR_HEIGHT: u32 = 76;
 const HOME_URL: &str = "https://www.google.com";
 
 #[derive(Debug, Deserialize)]
@@ -104,9 +104,9 @@ impl App {
             Command::Home => self.navigate(HOME_URL),
             Command::FocusAddress => self.send_to_toolbar("window.swiftlifeFocus();"),
             Command::OpenDevtools => {
-                // Wry 0.56.1 does not expose a cross-platform WebView::open_devtools()
-                // API. Keep the menu command harmless rather than breaking release builds.
-                self.send_to_toolbar("window.swiftlifeNotice && window.swiftlifeNotice('Geliştirici araçları bu sürümde kullanılamıyor.');");
+                if let Some(browser) = &self.browser {
+                    browser.open_devtools();
+                }
             }
         }
     }
@@ -141,19 +141,135 @@ impl ApplicationHandler<AppEvent> for App {
             .with_bounds(Self::bounds(&window, true))
             .with_html(toolbar_html)
             .with_ipc_handler(move |request: Request<String>| {
-                let body = request.into_body();
-                if let Ok(command) = serde_json::from_str::<Command>(&body) {
+                if let Ok(command) = serde_json::from_str::<Command>(&request.into_body()) {
                     let _ = toolbar_proxy.send_event(AppEvent::Command(command));
                 }
             })
             .with_focused(true)
+            .with_background_color((20, 22, 28, 255))
             .build_as_child(window.as_ref())
             .expect("SwiftLife araç çubuğu oluşturulamadı");
 
         let browser_proxy = proxy.clone();
         let browser_init = r#"
             (() => {
-                window.addEventListener('keydown', (event) => {
+                const style = document.createElement('style');
+                style.textContent = `
+                    #swiftlife-context-menu{position:fixed;z-index:2147483647;min-width:250px;padding:6px;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:rgba(24,27,34,.98);box-shadow:0 20px 60px rgba(0,0,0,.45),0 2px 12px rgba(0,0,0,.25);backdrop-filter:blur(16px);font:13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#f4f6fb;display:none;user-select:none}
+                    #swiftlife-context-menu.open{display:block}
+                    #swiftlife-context-menu button{width:100%;height:36px;border:0;border-radius:9px;background:transparent;color:inherit;text-align:left;padding:0 11px;display:flex;align-items:center;gap:10px;cursor:pointer}
+                    #swiftlife-context-menu button:hover{background:#303542}
+                    #swiftlife-context-menu .sl-ico{width:19px;text-align:center;color:#aeb7c8;font-size:15px}
+                    #swiftlife-context-menu .sl-sep{height:1px;background:#343945;margin:5px 4px}
+                    #swiftlife-context-menu .sl-muted{padding:7px 11px 5px;color:#7e8798;font-size:10px;letter-spacing:.08em;text-transform:uppercase}
+                `;
+                document.documentElement.appendChild(style);
+                const menu = document.createElement('div');
+                menu.id = 'swiftlife-context-menu';
+                document.documentElement.appendChild(menu);
+
+                let context = null;
+                const isEditable = el => {
+                    if (!el) return false;
+                    const tag = (el.tagName || '').toLowerCase();
+                    return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable;
+                };
+                const closest = (el, selector) => el && el.closest ? el.closest(selector) : null;
+                const clean = value => (value || '').trim();
+                const host = () => { try { return location.hostname.toLowerCase(); } catch (_) { return ''; } };
+                const isX = () => /(^|\.)x\.com$|(^|\.)twitter\.com$/.test(host());
+                const selectedText = () => clean(window.getSelection ? window.getSelection().toString() : '');
+                const absolute = (value) => { try { return new URL(value, location.href).href; } catch (_) { return ''; } };
+
+                const copyText = async text => {
+                    if (!text) return;
+                    try { await navigator.clipboard.writeText(text); return; } catch (_) {}
+                    try {
+                        const area = document.createElement('textarea');
+                        area.value = text; area.style.position='fixed'; area.style.opacity='0';
+                        document.body.appendChild(area); area.focus(); area.select();
+                        document.execCommand('copy'); area.remove();
+                    } catch (_) {}
+                };
+                const download = url => {
+                    if (!url) return;
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = '';
+                    a.rel = 'noreferrer';
+                    a.style.display = 'none';
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => a.remove(), 1000);
+                };
+                const open = url => { if (url) location.href = url; };
+                const hide = () => { menu.classList.remove('open'); context = null; };
+                const item = (icon, label, action) => {
+                    const b = document.createElement('button');
+                    b.type='button'; b.innerHTML=`<span class="sl-ico">${icon}</span><span>${label}</span>`;
+                    b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); hide(); action(); });
+                    return b;
+                };
+                const separator = () => { const d=document.createElement('div'); d.className='sl-sep'; return d; };
+
+                const buildMenu = info => {
+                    menu.replaceChildren();
+                    if (info.kind === 'link') {
+                        menu.appendChild(item('↗', isX() ? 'X bağlantısını aç' : 'Bağlantıyı aç', () => open(info.url)));
+                        menu.appendChild(item('⧉', isX() ? 'X bağlantısını kopyala' : 'Bağlantı adresini kopyala', () => copyText(info.url)));
+                        menu.appendChild(item('↓', 'Bağlantıyı indir', () => download(info.url)));
+                    } else if (info.kind === 'image') {
+                        menu.appendChild(item('◉', 'Görseli aç', () => open(info.url)));
+                        menu.appendChild(item('⧉', 'Görsel URL’sini kopyala', () => copyText(info.url)));
+                        menu.appendChild(item('↓', 'Görseli indir', () => download(info.url)));
+                        if (info.link) {
+                            menu.appendChild(separator());
+                            menu.appendChild(item('↗', isX() ? 'Gönderiyi aç' : 'Görsel bağlantısını aç', () => open(info.link)));
+                        }
+                    } else if (info.kind === 'video') {
+                        menu.appendChild(item('▶', 'Videoyu aç', () => open(info.url)));
+                        menu.appendChild(item('⧉', 'Video URL’sini kopyala', () => copyText(info.url)));
+                        menu.appendChild(item('↓', 'Video bağlantısını indir', () => download(info.url)));
+                    } else if (info.kind === 'selection') {
+                        menu.appendChild(item('⧉', 'Seçimi kopyala', () => copyText(info.text)));
+                        menu.appendChild(item('⌕', 'Seçimde ara', () => open('https://www.google.com/search?q=' + encodeURIComponent(info.text))));
+                    } else {
+                        menu.appendChild(item('↻', 'Sayfayı yenile', () => location.reload()));
+                        menu.appendChild(item('⌂', 'Ana sayfayı aç', () => open('https://www.google.com')));
+                    }
+                    const note = document.createElement('div');
+                    note.className='sl-muted';
+                    note.textContent = isX() ? 'SwiftLife • X araçları' : 'SwiftLife • Hızlı işlemler';
+                    menu.appendChild(separator()); menu.appendChild(note);
+                };
+
+                document.addEventListener('contextmenu', event => {
+                    const target = event.target;
+                    if (isEditable(target)) return;
+                    const link = closest(target, 'a[href]');
+                    const image = closest(target, 'img[src], picture img');
+                    const video = closest(target, 'video[src]');
+                    const selection = selectedText();
+                    const linkUrl = link ? absolute(link.href) : '';
+                    const imageUrl = image ? absolute(image.currentSrc || image.src || image.getAttribute('src')) : '';
+                    const videoUrl = video ? absolute(video.currentSrc || video.src || video.getAttribute('src')) : '';
+                    if (imageUrl) context={kind:'image',url:imageUrl,link:linkUrl};
+                    else if (videoUrl) context={kind:'video',url:videoUrl};
+                    else if (linkUrl) context={kind:'link',url:linkUrl};
+                    else if (selection) context={kind:'selection',text:selection};
+                    else context={kind:'page'};
+                    event.preventDefault();
+                    buildMenu(context);
+                    const pad=8, mw=270, mh=Math.min(menu.scrollHeight || 260, innerHeight-16);
+                    menu.style.left = Math.max(pad, Math.min(event.clientX, innerWidth-mw-pad)) + 'px';
+                    menu.style.top = Math.max(pad, Math.min(event.clientY, innerHeight-mh-pad)) + 'px';
+                    menu.classList.add('open');
+                }, true);
+                document.addEventListener('mousedown', e => { if (!menu.contains(e.target)) hide(); }, true);
+                document.addEventListener('keydown', e => { if (e.key === 'Escape') hide(); }, true);
+                window.addEventListener('blur', hide);
+
+                window.addEventListener('keydown', event => {
                     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'l') {
                         event.preventDefault();
                         try { window.ipc.postMessage(JSON.stringify({action:'focus_address'})); } catch (_) {}
@@ -161,6 +277,14 @@ impl ApplicationHandler<AppEvent> for App {
                 }, true);
             })();
         "#;
+
+        let download_dir = dirs::download_dir().or_else(|| {
+            std::env::var_os("HOME").map(|home| PathBuf::from(home).join("Downloads"))
+        });
+        let download_dir = download_dir.map(|path| {
+            let _ = std::fs::create_dir_all(&path);
+            path
+        });
 
         let browser = WebViewBuilder::new()
             .with_id("swiftlife-browser")
@@ -170,7 +294,16 @@ impl ApplicationHandler<AppEvent> for App {
             .with_autoplay(true)
             .with_hotkeys_zoom(true)
             .with_back_forward_navigation_gestures(true)
+            .with_devtools(true)
             .with_initialization_script(browser_init)
+            .with_download_started_handler(move |_url, path| {
+                if let Some(dir) = &download_dir {
+                    if let Some(file_name) = path.file_name() {
+                        *path = dir.join(file_name);
+                    }
+                }
+                path.is_absolute()
+            })
             .with_navigation_handler({
                 let proxy = browser_proxy.clone();
                 move |url| {
