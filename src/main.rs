@@ -124,6 +124,9 @@ impl ApplicationHandler<AppEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() { return; }
 
+        #[cfg(target_os = "linux")]
+        gtk::init().expect("GTK başlatılamadı. Linux'ta WebKitGTK bağımlılıklarını kurun.");
+
         let proxy = event_loop.create_proxy();
         self.proxy = Some(proxy.clone());
 
@@ -229,6 +232,13 @@ impl ApplicationHandler<AppEvent> for App {
             WindowEvent::Resized(_) => self.update_layout(),
             WindowEvent::CloseRequested => event_loop.exit(),
             _ => {}
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        while gtk::events_pending() {
+            gtk::main_iteration_do(false);
         }
     }
 }
