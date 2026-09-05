@@ -1,0 +1,45 @@
+name: Apply SwiftLife runtime optimizations
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply runtime fixes
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('src/main.rs')
+          s = p.read_text(encoding='utf-8')
+          original = s
+          s = s.replace('sync::Arc,\n    time::{SystemTime, UNIX_EPOCH},', 'sync::{mpsc, mpsc::Sender, Arc},\n    thread,\n    time::{SystemTime, UNIX_EPOCH},')
+          s = s.replace('struct App { window: Option<Arc<Window>>, browser: Option<WebView>, web_context: Option<WebContext>, proxy: EventLoopProxy<AppEvent>, last_history_url: String }', 'struct App { window: Option<Arc<Window>>, browser: Option<WebView>, web_context: Option<WebContext>, proxy: EventLoopProxy<AppEvent>, last_history_url: String, last_ui_url: String, history_tx: Sender<HistoryEntry> }')
+          s = s.replace('impl App {\n    fn new(proxy: EventLoopProxy<AppEvent>) -> Self { Self { window: None, browser: None, web_context: None, proxy, last_history_url: String::new() } }', '''struct HistoryEntry { url: String, visited_at: u64 }\n\nfn spawn_history_writer() -> Sender<HistoryEntry> {\n    let (tx, rx) = mpsc::channel::<HistoryEntry>();\n    thread::Builder::new().name("swiftlife-history".into()).spawn(move || {\n        let history = history_path();\n        let session = session_path();\n        if let Some(path) = history.as_ref() { if let Some(parent) = path.parent() { let _ = fs::create_dir_all(parent); } }\n        for entry in rx {\n            if let Some(path) = history.as_ref() {\n                if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {\n                    let line = serde_json::json!({"visited_at": entry.visited_at, "url": entry.url}).to_string();\n                    let _ = writeln!(file, "{line}");\n                }\n            }\n            if let Some(path) = session.as_ref() { let _ = fs::write(path, &entry.url); }\n        }\n    }).expect("SwiftLife history worker");\n    tx\n}\n\nimpl App {\n    fn new(proxy: EventLoopProxy<AppEvent>) -> Self { Self { window: None, browser: None, web_context: None, proxy, last_history_url: String::new(), last_ui_url: String::new(), history_tx: spawn_history_writer() } }''')
+          old_save = '    fn save_history(&mut self, url: &str) { if url.is_empty() || url == "about:blank" || url == self.last_history_url { return; } self.last_history_url = url.to_string(); let Some(path) = history_path() else { return }; if let Some(parent) = path.parent() { let _ = fs::create_dir_all(parent); } let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default(); let line = serde_json::json!({"visited_at": stamp, "url": url}).to_string(); if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) { let _ = writeln!(file, "{line}"); } if let Some(session) = session_path() { let _ = fs::write(session, url); } }'
+          new_save = '''    fn save_history(&mut self, url: &str) {\n        if url.is_empty() || url == "about:blank" || url == self.last_history_url { return; }\n        self.last_history_url = url.to_string();\n        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default();\n        let _ = self.history_tx.send(HistoryEntry { url: url.to_string(), visited_at: stamp });\n    }'''
+          s = s.replace(old_save, new_save)
+          s = s.replace('AppEvent::UrlChanged(url) => { self.save_history(&url); let value = serde_json::to_string(&url).unwrap_or_else(|_| "\\"\\"".into()); self.send_script(&format!("window.swiftlifeUrl&&window.swiftlifeUrl({value});")); self.push_state(); }', 'AppEvent::UrlChanged(url) => { self.save_history(&url); if url != self.last_ui_url { self.last_ui_url = url.clone(); let value = serde_json::to_string(&url).unwrap_or_else(|_| "\\"\\"".into()); self.send_script(&format!("window.swiftlifeUrl&&window.swiftlifeUrl({value});")); } self.push_state(); }')
+          s = s.replace('backdrop-filter:blur(18px)', 'backdrop-filter:none')
+          s = s.replace('box-shadow:0 5px 24px rgba(0,0,0,.32);backdrop-filter:none', 'box-shadow:0 3px 12px rgba(0,0,0,.22);backdrop-filter:none')
+          s = s.replace('.with_devtools(true)', '.with_devtools(false)')
+          if s == original:
+              raise SystemExit('No runtime optimization changes matched')
+          p.write_text(s, encoding='utf-8')
+      - name: Check
+        run: cargo check
+      - name: Commit optimized source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/main.rs
+          git commit -m "perf: remove runtime UI stalls" || exit 0
+          git push origin HEAD:main
